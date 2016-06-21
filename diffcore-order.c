@@ -4,6 +4,7 @@
 #include "cache.h"
 #include "diff.h"
 #include "diffcore.h"
+#include <fnmatch.h>
 
 static char **order;
 static int order_cnt;
@@ -14,7 +15,6 @@ static void prepare_order(const char *orderfile)
 	void *map;
 	char *cp, *endp;
 	struct stat st;
-	size_t sz;
 
 	if (order)
 		return;
@@ -26,12 +26,11 @@ static void prepare_order(const char *orderfile)
 		close(fd);
 		return;
 	}
-	sz = xsize_t(st.st_size);
-	map = mmap(NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
+	map = mmap(NULL, st.st_size, PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
 	close(fd);
 	if (map == MAP_FAILED)
 		return;
-	endp = (char *) map + sz;
+	endp = map + st.st_size;
 	for (pass = 0; pass < 2; pass++) {
 		cnt = 0;
 		cp = map;
@@ -48,8 +47,11 @@ static void prepare_order(const char *orderfile)
 				if (*ep == '\n') {
 					*ep = 0;
 					order[cnt] = cp;
-				} else {
-					order[cnt] = xmemdupz(cp, ep - cp);
+				}
+				else {
+					order[cnt] = xmalloc(ep-cp+1);
+					memcpy(order[cnt], cp, ep-cp);
+					order[cnt][ep-cp] = 0;
 				}
 				cnt++;
 			}
@@ -103,13 +105,9 @@ static int compare_pair_order(const void *a_, const void *b_)
 void diffcore_order(const char *orderfile)
 {
 	struct diff_queue_struct *q = &diff_queued_diff;
-	struct pair_order *o;
+	struct pair_order *o = xmalloc(sizeof(*o) * q->nr);
 	int i;
 
-	if (!q->nr)
-		return;
-
-	o = xmalloc(sizeof(*o) * q->nr);
 	prepare_order(orderfile);
 	for (i = 0; i < q->nr; i++) {
 		o[i].pair = q->queue[i];
